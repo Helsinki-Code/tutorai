@@ -132,7 +132,6 @@ const App: React.FC = () => {
       for (const module of generatedCert.modules) {
         const diagramImage = await generateModuleDiagramImage(module);
         diagramImages.push(diagramImage);
-        await new Promise(resolve => setTimeout(resolve, 1500));
       }
 
       const generatedBadge = await badgePromise;

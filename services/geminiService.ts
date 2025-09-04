@@ -3,6 +3,8 @@ import type { Certification, CertificationFormInput, Module, TutorPersona, Citat
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const certificationSchema = {
   type: Type.OBJECT,
   properties: {
@@ -202,26 +204,45 @@ export const generateModuleDiagramImage = async (module: Module): Promise<string
     - Shape: The overall composition should be balanced and aesthetically pleasing.
     `;
 
-    try {
-        const response = await ai.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: prompt,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/png',
-                aspectRatio: '16:9',
-            },
-        });
+    const maxRetries = 3;
+    let lastError: any = null;
 
-        if (response.generatedImages && response.generatedImages.length > 0) {
-            return response.generatedImages[0].image.imageBytes;
-        } else {
-            throw new Error("No diagram image was generated for this module.");
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await ai.models.generateImages({
+                model: 'imagen-4.0-generate-001',
+                prompt: prompt,
+                config: {
+                    numberOfImages: 1,
+                    outputMimeType: 'image/png',
+                    aspectRatio: '16:9',
+                },
+            });
+
+            if (response.generatedImages && response.generatedImages.length > 0) {
+                return response.generatedImages[0].image.imageBytes;
+            } else {
+                throw new Error("No diagram image was generated for this module.");
+            }
+        } catch (error: any) {
+            lastError = error;
+            // Check for rate limit error (429) by inspecting the error message
+            if (error.message && error.message.includes('429')) {
+                if (attempt < maxRetries) {
+                    const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000; // Exponential backoff with jitter
+                    console.warn(`Rate limit hit for module "${module.title}". Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt}/${maxRetries})`);
+                    await sleep(delay);
+                }
+            } else {
+                // Not a retriable error, fail immediately
+                console.error(`Non-retriable error generating diagram for module "${module.title}":`, error);
+                return ''; // Stop retrying
+            }
         }
-    } catch (error) {
-        console.error(`Error generating diagram for module "${module.title}":`, error);
-        return '';
     }
+    
+    console.error(`Failed to generate diagram for module "${module.title}" after ${maxRetries} attempts:`, lastError);
+    return ''; // Return empty string as a fallback
 };
 
 
